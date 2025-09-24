@@ -27,7 +27,6 @@ async function getGraphToken(): Promise<{account: AccountInfo, token: string}> {
     account = login.account!;
     msalInstance.setActiveAccount(account);
   }
-  …
 }
 
   try {
