@@ -13,17 +13,23 @@ const msalConfig = {
   cache: { cacheLocation: "localStorage" },
 };
 const msalInstance = new PublicClientApplication(msalConfig);
+const msalReady = msalInstance.initialize();
 const GRAPH_SCOPES = ["Files.ReadWrite", "offline_access"];
 const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
 const FILE_PATH = "/me/drive/root:/Glossar/glossar.json"; // Speicherort in OneDrive
 
 async function getGraphToken(): Promise<{account: AccountInfo, token: string}> {
+  await msalReady; // <--- diese Zeile neu
+
   let account = msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0];
   if (!account) {
     const login = await msalInstance.loginPopup({ scopes: GRAPH_SCOPES });
     account = login.account!;
     msalInstance.setActiveAccount(account);
   }
+  …
+}
+
   try {
     const r = await msalInstance.acquireTokenSilent({ account, scopes: GRAPH_SCOPES });
     return { account, token: r.accessToken };
