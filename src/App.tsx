@@ -6,7 +6,7 @@ import { PublicClientApplication, InteractionRequiredAuthError, AccountInfo } fr
 
 const msalConfig = {
   auth: {
-    clientId: "YOUR_CLIENT_ID", // <- HIER deine echte Azure Client-ID eintragen
+    clientId: "9d5d5688-4c2a-451e-85e5-8780c4cd8d5e", // <- HIER deine echte Azure Client-ID eintragen
     authority: "https://login.microsoftonline.com/common",
     redirectUri: window.location.origin + "/",
   },
