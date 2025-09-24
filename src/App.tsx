@@ -2,11 +2,15 @@ import React, { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, Download, Search, Plus, X } from "lucide-react";
 
 /* === OneDrive / Microsoft Login (MSAL) === */
-import { PublicClientApplication, InteractionRequiredAuthError, AccountInfo } from "@azure/msal-browser";
+import {
+  PublicClientApplication,
+  InteractionRequiredAuthError,
+  AccountInfo,
+} from "@azure/msal-browser";
 
 const msalConfig = {
   auth: {
-    clientId: "9d5d5688-4c2a-451e-85e5-8780c4cd8d5e", // <- HIER deine echte Azure Client-ID eintragen
+    clientId: "YOUR_CLIENT_ID", // <- HIER deine echte Azure Client-ID eintragen
     authority: "https://login.microsoftonline.com/common",
     redirectUri: window.location.origin + "/",
   },
@@ -14,23 +18,28 @@ const msalConfig = {
 };
 const msalInstance = new PublicClientApplication(msalConfig);
 const msalReady = msalInstance.initialize();
+
 const GRAPH_SCOPES = ["Files.ReadWrite", "offline_access"];
 const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
-const FILE_PATH = "/me/drive/root:/Glossar/glossar.json"; // Speicherort in OneDrive
+const FILE_PATH = "/me/drive/root:/Glossar/glossar.json";
 
-async function getGraphToken(): Promise<{account: AccountInfo, token: string}> {
-  await msalReady; // <--- diese Zeile neu
+async function getGraphToken(): Promise<{ account: AccountInfo; token: string }> {
+  await msalReady;
 
-  let account = msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0];
+  let account =
+    msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0];
+
   if (!account) {
     const login = await msalInstance.loginPopup({ scopes: GRAPH_SCOPES });
     account = login.account!;
     msalInstance.setActiveAccount(account);
   }
-}
 
   try {
-    const r = await msalInstance.acquireTokenSilent({ account, scopes: GRAPH_SCOPES });
+    const r = await msalInstance.acquireTokenSilent({
+      account,
+      scopes: GRAPH_SCOPES,
+    });
     return { account, token: r.accessToken };
   } catch (e) {
     if (e instanceof InteractionRequiredAuthError) {
@@ -41,79 +50,133 @@ async function getGraphToken(): Promise<{account: AccountInfo, token: string}> {
   }
 }
 
-async function oneDriveLoadOrInit(): Promise<{glossar: Entry[], quellen: Source[]}> {
+async function oneDriveLoadOrInit(): Promise<{
+  glossar: Entry[];
+  quellen: Source[];
+}> {
   const { token } = await getGraphToken();
+
   const res = await fetch(`${GRAPH_BASE}${FILE_PATH}:/content`, {
-    headers: { Authorization: `Bearer ${token}` }
+    headers: { Authorization: `Bearer ${token}` },
   });
 
-  if (res.status === 200) return await res.json();
+  if (res.status === 200) {
+    return await res.json();
+  }
 
-  // Ordner "Glossar" anlegen (idempotent)
+  // Ordner "Glossar" (idempotent)
   await fetch(`${GRAPH_BASE}/me/drive/root/children`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ name: "Glossar", folder: {}, "@microsoft.graph.conflictBehavior": "replace" })
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      name: "Glossar",
+      folder: {},
+      "@microsoft.graph.conflictBehavior": "replace",
+    }),
   });
 
   const empty = { glossar: [], quellen: [] };
+
   const putRes = await fetch(`${GRAPH_BASE}${FILE_PATH}:/content`, {
     method: "PUT",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify(empty)
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(empty),
   });
   if (!putRes.ok) throw new Error("Konnte Glossar-Datei nicht anlegen");
   return empty;
 }
 
-async function oneDriveSaveAll(payload: {glossar: Entry[], quellen: Source[]}) {
+async function oneDriveSaveAll(payload: {
+  glossar: Entry[];
+  quellen: Source[];
+}) {
   const { token } = await getGraphToken();
   const res = await fetch(`${GRAPH_BASE}${FILE_PATH}:/content`, {
     method: "PUT",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error("Speichern fehlgeschlagen");
 }
 
 /* === Word-Export (docx) === */
 import {
-  Document, Packer, Paragraph, Table, TableRow, TableCell, TextRun, WidthType
+  Document,
+  Packer,
+  Paragraph,
+  Table,
+  TableRow,
+  TableCell,
+  TextRun,
+  WidthType,
 } from "docx";
 
 /** === Typen === */
-type Entry = { begriff: string; definition: string; beispiel: string; quellen: string[] };
+type Entry = {
+  begriff: string;
+  definition: string;
+  beispiel: string;
+  quellen: string[];
+};
 type Source = { quelle: string; beschreibung: string };
 
 /** === Utils === */
 function normalize(str: string) {
-  return (str || "").toString().normalize("NFKD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+  return (str || "")
+    .toString()
+    .normalize("NFKD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
 }
 function levenshtein(a: string, b: string) {
-  a = normalize(a); b = normalize(b);
-  const m = a.length, n = b.length;
-  if (m === 0) return n; if (n === 0) return m;
-  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  a = normalize(a);
+  b = normalize(b);
+  const m = a.length,
+    n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const dp = Array.from({ length: m + 1 }, () =>
+    new Array(n + 1).fill(0)
+  ) as number[][];
   for (let i = 0; i <= m; i++) dp[i][0] = i;
   for (let j = 0; j <= n; j++) dp[0][j] = j;
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
       const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + cost
+      );
     }
   }
   return dp[m][n];
 }
-function downloadBlob(filename: string, content: string, type = "text/plain;charset=utf-8") {
+function downloadBlob(
+  filename: string,
+  content: string,
+  type = "text/plain;charset=utf-8"
+) {
   const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url; a.download = filename; a.click();
+  a.href = url;
+  a.download = filename;
+  a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 function csvEscape(val: unknown) {
   const s = String(val ?? "");
-  if (/[,\"\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  if (/[,"\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
   return s;
 }
 
@@ -123,66 +186,113 @@ const LS_SOURCES = "glossar_sources_v1";
 
 /** === Defaultdaten === */
 const defaultEntries: Entry[] = [
-  { begriff: "Algorithmus", definition: "Schrittweise Anleitung zur Lösung eines Problems.", beispiel: "Ein Sortieralgorithmus ordnet Daten.", quellen: [] },
-  { begriff: "Datenbank", definition: "System zur Speicherung und Verwaltung von Daten.", beispiel: "MySQL ist eine relationale Datenbank.", quellen: [] },
+  {
+    begriff: "Algorithmus",
+    definition: "Schrittweise Anleitung zur Lösung eines Problems.",
+    beispiel: "Ein Sortieralgorithmus ordnet Daten.",
+    quellen: [],
+  },
+  {
+    begriff: "Datenbank",
+    definition: "System zur Speicherung und Verwaltung von Daten.",
+    beispiel: "MySQL ist eine relationale Datenbank.",
+    quellen: [],
+  },
 ];
 const defaultSources: Source[] = [
   { quelle: "Musterquelle 1", beschreibung: "Buch, Artikel oder Website" },
 ];
+
 /** === Word (A–Z) === */
 async function exportWordSorted(entries: Entry[], sources: Source[]) {
-  const rows = [...entries].sort((a,b)=> normalize(a.begriff).localeCompare(normalize(b.begriff)));
-
-  const headCells = ["Begriff","Definition","Beispiel","Quellen"].map(t =>
-    new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: t, bold: true })] })] })
+  const rows = [...entries].sort((a, b) =>
+    normalize(a.begriff).localeCompare(normalize(b.begriff))
   );
-  const dataRows = rows.map(e => new TableRow({
-    children: [
-      new TableCell({ children: [new Paragraph(e.begriff || "")] }),
-      new TableCell({ children: [new Paragraph(e.definition || "")] }),
-      new TableCell({ children: [new Paragraph(e.beispiel || "")] }),
-      new TableCell({ children: [new Paragraph((e.quellen||[]).join("; "))] }),
-    ],
-  }));
+
+  const headCells = ["Begriff", "Definition", "Beispiel", "Quellen"].map(
+    (t) =>
+      new TableCell({
+        children: [
+          new Paragraph({
+            children: [new TextRun({ text: t, bold: true })],
+          }),
+        ],
+      })
+  );
+
+  const dataRows = rows.map(
+    (e) =>
+      new TableRow({
+        children: [
+          new TableCell({ children: [new Paragraph(e.begriff || "")] }),
+          new TableCell({ children: [new Paragraph(e.definition || "")] }),
+          new TableCell({ children: [new Paragraph(e.beispiel || "")] }),
+          new TableCell({
+            children: [new Paragraph((e.quellen || []).join("; "))],
+          }),
+        ],
+      })
+  );
+
   const glossarTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
-    rows: [ new TableRow({ children: headCells }), ...dataRows ],
+    rows: [new TableRow({ children: headCells }), ...dataRows],
   });
 
-  const qHead = ["Quelle","Beschreibung"].map(t =>
-    new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: t, bold: true })] })] })
+  const qHead = ["Quelle", "Beschreibung"].map(
+    (t) =>
+      new TableCell({
+        children: [
+          new Paragraph({
+            children: [new TextRun({ text: t, bold: true })],
+          }),
+        ],
+      })
   );
-  const qRows = (sources||[]).map(s => new TableRow({
-    children: [
-      new TableCell({ children: [new Paragraph(s.quelle || "")] }),
-      new TableCell({ children: [new Paragraph(s.beschreibung || "")] }),
-    ],
-  }));
+  const qRows = (sources || []).map(
+    (s) =>
+      new TableRow({
+        children: [
+          new TableCell({ children: [new Paragraph(s.quelle || "")] }),
+          new TableCell({ children: [new Paragraph(s.beschreibung || "")] }),
+        ],
+      })
+  );
   const quellenTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
-    rows: [ new TableRow({ children: qHead }), ...qRows ],
+    rows: [new TableRow({ children: qHead }), ...qRows],
   });
 
   const doc = new Document({
-    sections: [{
-      children: [
-        new Paragraph({ children: [new TextRun({ text: "Glossar (A–Z)", bold: true })] }),
-        new Paragraph({ children: [new TextRun({ text: new Date().toLocaleString() })] }),
-        new Paragraph(" "),
-        glossarTable,
-        new Paragraph(" "),
-        new Paragraph({ children: [new TextRun({ text: "Quellenangaben", bold: true })] }),
-        new Paragraph(" "),
-        quellenTable,
-      ],
-    }],
+    sections: [
+      {
+        children: [
+          new Paragraph({
+            children: [new TextRun({ text: "Glossar (A–Z)", bold: true })],
+          }),
+          new Paragraph({
+            children: [new TextRun({ text: new Date().toLocaleString() })],
+          }),
+          new Paragraph(" "),
+          glossarTable,
+          new Paragraph(" "),
+          new Paragraph({
+            children: [new TextRun({ text: "Quellenangaben", bold: true })],
+          }),
+          new Paragraph(" "),
+          quellenTable,
+        ],
+      },
+    ],
   });
 
   const blob = await Packer.toBlob(doc);
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url; a.download = "Glossar_A-Z.docx"; a.click();
-  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  a.href = url;
+  a.download = "Glossar_A-Z.docx";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /** === App === */
@@ -199,88 +309,147 @@ export default function App() {
 
   // einmalig aus localStorage laden
   useEffect(() => {
-    try { const e = localStorage.getItem(LS_ENTRIES); if (e) setEntries(JSON.parse(e)); } catch {}
-    try { const s = localStorage.getItem(LS_SOURCES); if (s) setSources(JSON.parse(s)); } catch {}
+    try {
+      const e = localStorage.getItem(LS_ENTRIES);
+      if (e) setEntries(JSON.parse(e));
+    } catch {}
+    try {
+      const s = localStorage.getItem(LS_SOURCES);
+      if (s) setSources(JSON.parse(s));
+    } catch {}
   }, []);
   // Änderungen speichern
-  useEffect(() => { try { localStorage.setItem(LS_ENTRIES, JSON.stringify(entries)); } catch {} }, [entries]);
-  useEffect(() => { try { localStorage.setItem(LS_SOURCES, JSON.stringify(sources)); } catch {} }, [sources]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(LS_ENTRIES, JSON.stringify(entries));
+    } catch {}
+  }, [entries]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(LS_SOURCES, JSON.stringify(sources));
+    } catch {}
+  }, [sources]);
 
   // Sortierung
   const sorted = useMemo(() => {
-    const arr = [...entries].sort((a, b) => normalize(a.begriff).localeCompare(normalize(b.begriff)));
+    const arr = [...entries].sort((a, b) =>
+      normalize(a.begriff).localeCompare(normalize(b.begriff))
+    );
     return sortAsc ? arr : arr.reverse();
   }, [entries, sortAsc]);
 
-  // Suche (exakt → Teil → unscharf)
+  // Suche (exakt -> Teil -> unscharf)
   const results = useMemo(() => {
     const q = query.trim();
     if (!q) return sorted;
     const nq = normalize(q);
-    const exact = sorted.filter(e => normalize(e.begriff) === nq);
+    const exact = sorted.filter((e) => normalize(e.begriff) === nq);
     if (exact.length) return exact;
-    const partial = sorted.filter(e => normalize(e.begriff).includes(nq));
+    const partial = sorted.filter((e) => normalize(e.begriff).includes(nq));
     if (partial.length) return partial;
     if (fuzzy) {
       return sorted
-        .map(e => ({ e, d: levenshtein(nq, e.begriff) }))
-        .filter(x => x.d <= fuzzyTol)
+        .map((e) => ({ e, d: levenshtein(nq, e.begriff) }))
+        .filter((x) => x.d <= fuzzyTol)
         .sort((a, b) => a.d - b.d)
-        .map(x => x.e);
+        .map((x) => x.e);
     }
     return [];
   }, [sorted, query, fuzzy, fuzzyTol]);
 
   // CSV Export/Import (inkl. Quellen als Semikolonliste)
   function exportCSV() {
-    const header = ["Begriff","Definition","Beispiel","Quellen"].join(",");
-    const rows = entries.map(e => [
-      csvEscape(e.begriff),
-      csvEscape(e.definition),
-      csvEscape(e.beispiel),
-      csvEscape(e.quellen.join("; "))
-    ].join(","));
-    downloadBlob("Glossar.csv", [header, ...rows].join("\n"), "text/csv;charset=utf-8");
+    const header = ["Begriff", "Definition", "Beispiel", "Quellen"].join(",");
+    const rows = entries.map((e) =>
+      [
+        csvEscape(e.begriff),
+        csvEscape(e.definition),
+        csvEscape(e.beispiel),
+        csvEscape(e.quellen.join("; ")),
+      ].join(",")
+    );
+    downloadBlob(
+      "Glossar.csv",
+      [header, ...rows].join("\n"),
+      "text/csv;charset=utf-8"
+    );
   }
   async function importCSVFromFile(file: File) {
     const text = await file.text();
     const lines = text.split(/\r?\n/);
     if (!lines.length) return;
+
     function parseLine(line: string) {
-      const cells: string[] = []; let cur = ""; let inQ = false;
+      const cells: string[] = [];
+      let cur = "",
+        inQ = false;
       for (let i = 0; i < line.length; i++) {
         const ch = line[i];
-        if (inQ) { if (ch === '"' && line[i+1] === '"') { cur += '"'; i++; }
-          else if (ch === '"') { inQ = false; }
-          else { cur += ch; } }
-        else { if (ch === '"') inQ = true;
-          else if (ch === ',') { cells.push(cur); cur = ""; }
-          else { cur += ch; } }
+        if (inQ) {
+          if (ch === '"' && line[i + 1] === '"') {
+            cur += '"';
+            i++;
+          } else if (ch === '"') {
+            inQ = false;
+          } else {
+            cur += ch;
+          }
+        } else {
+          if (ch === '"') inQ = true;
+          else if (ch === ",") {
+            cells.push(cur);
+            cur = "";
+          } else {
+            cur += ch;
+          }
+        }
       }
-      cells.push(cur); return cells;
+      cells.push(cur);
+      return cells;
     }
+
     const header = parseLine(lines[0] ?? "");
-    const cols = header.map(s => s.trim().toLowerCase());
+    const cols = header.map((s) => s.trim().toLowerCase());
     const idxB = cols.indexOf("begriff");
     const idxD = cols.indexOf("definition");
     const idxX = cols.indexOf("beispiel");
     const idxQ = cols.indexOf("quellen");
-    if (idxB === -1) { alert("CSV braucht 'Begriff'."); return; }
-    const parsed: Entry[] = lines.slice(1).filter(l => l.trim().length).map(l => {
-      const c = parseLine(l);
-      const q = (idxQ !== -1 ? (c[idxQ] ?? "") : "").split(/[;|,]/).map(s=>s.trim()).filter(Boolean);
-      return { begriff: c[idxB] ?? "", definition: idxD !== -1 ? (c[idxD] ?? "") : "", beispiel: idxX !== -1 ? (c[idxX] ?? "") : "", quellen: q };
-    });
-    setEntries(prev => {
+    if (idxB === -1) {
+      alert("CSV braucht 'Begriff'.");
+      return;
+    }
+
+    const parsed: Entry[] = lines
+      .slice(1)
+      .filter((l) => l.trim().length)
+      .map((l) => {
+        const c = parseLine(l);
+        const q = (idxQ !== -1 ? c[idxQ] ?? "" : "")
+          .split(/[;|,]/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+        return {
+          begriff: c[idxB] ?? "",
+          definition: idxD !== -1 ? c[idxD] ?? "" : "",
+          beispiel: idxX !== -1 ? c[idxX] ?? "" : "",
+          quellen: q,
+        };
+      });
+
+    setEntries((prev) => {
       const merged = [...prev];
-      parsed.forEach(p => {
+      parsed.forEach((p) => {
         if (!p.begriff?.trim()) return;
-        const i = merged.findIndex(x => normalize(x.begriff) === normalize(p.begriff));
-        if (i >= 0) merged[i] = p; else merged.push(p);
+        const i = merged.findIndex(
+          (x) => normalize(x.begriff) === normalize(p.begriff)
+        );
+        if (i >= 0) merged[i] = p;
+        else merged.push(p);
       });
       return merged;
     });
   }
+
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="mx-auto max-w-6xl grid gap-6">
@@ -296,7 +465,7 @@ export default function App() {
                   setEntries(data.glossar || []);
                   setSources(data.quellen || []);
                   alert("Aus OneDrive geladen");
-                } catch (e:any) {
+                } catch (e: any) {
                   alert(e.message || "Fehler beim Laden");
                 }
               }}
@@ -310,7 +479,7 @@ export default function App() {
                 try {
                   await oneDriveSaveAll({ glossar: entries, quellen: sources });
                   alert("In OneDrive gespeichert");
-                } catch (e:any) {
+                } catch (e: any) {
                   alert(e.message || "Fehler beim Speichern");
                 }
               }}
@@ -356,12 +525,14 @@ export default function App() {
         <div className="rounded-2xl shadow-sm border bg-white p-4 grid gap-3">
           <div className="grid md:grid-cols-12 gap-3 items-end">
             <div className="md:col-span-6">
-              <label htmlFor="query" className="text-sm font-medium">Suchbegriff</label>
+              <label htmlFor="query" className="text-sm font-medium">
+                Suchbegriff
+              </label>
               <div className="relative mt-1">
                 <input
                   id="query"
                   value={query}
-                  onChange={e => setQuery(e.target.value)}
+                  onChange={(e) => setQuery(e.target.value)}
                   placeholder="Begriff eingeben…"
                   className="w-full rounded-xl border px-3 py-2 pr-10"
                 />
@@ -374,7 +545,7 @@ export default function App() {
               <select
                 className="w-full mt-1 rounded-xl border px-3 py-2"
                 value={String(fuzzy)}
-                onChange={e => setFuzzy(e.target.value === "true")}
+                onChange={(e) => setFuzzy(e.target.value === "true")}
               >
                 <option value="true">An</option>
                 <option value="false">Aus</option>
@@ -386,10 +557,12 @@ export default function App() {
               <select
                 className="w-full mt-1 rounded-xl border px-3 py-2"
                 value={String(fuzzyTol)}
-                onChange={e => setFuzzyTol(Number(e.target.value))}
+                onChange={(e) => setFuzzyTol(Number(e.target.value))}
               >
-                {[0,1,2,3].map(n => (
-                  <option key={n} value={n}>{n}</option>
+                {[0, 1, 2, 3].map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
                 ))}
               </select>
             </div>
@@ -405,7 +578,7 @@ export default function App() {
             <div className="flex items-center gap-2">
               <button
                 className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 flex items-center"
-                onClick={() => setSortAsc(v => !v)}
+                onClick={() => setSortAsc((v) => !v)}
                 title="Nach Begriff sortieren"
               >
                 {sortAsc ? (
@@ -432,10 +605,13 @@ export default function App() {
                 Keine Treffer. Toleranz erhöhen oder Schreibweise prüfen.
               </div>
             )}
-            {results.map(e => (
+            {results.map((e) => (
               <button
                 key={e.begriff}
-                onClick={() => { setSelected(e); setModalOpen(true); }}
+                onClick={() => {
+                  setSelected(e);
+                  setModalOpen(true);
+                }}
                 className="w-full text-left hover:bg-gray-50 focus:bg-gray-50 outline-none"
               >
                 <div className="grid grid-cols-12 gap-3 px-4 py-3">
@@ -453,24 +629,32 @@ export default function App() {
           sources={sources}
           onAdd={(entry) => {
             if (!entry.begriff?.trim()) return;
-            setEntries(prev => {
-              const i = prev.findIndex(p => normalize(p.begriff) === normalize(entry.begriff));
-              if (i >= 0) { const clone = [...prev]; clone[i] = entry; return clone; }
+            setEntries((prev) => {
+              const i = prev.findIndex(
+                (p) => normalize(p.begriff) === normalize(entry.begriff)
+              );
+              if (i >= 0) {
+                const clone = [...prev];
+                clone[i] = entry;
+                return clone;
+              }
               return [...prev, entry];
             });
           }}
-          onAddSource={(s) => setSources(prev => [...prev, s])}
+          onAddSource={(s) => setSources((prev) => [...prev, s])}
         />
 
         {/* Quellenliste */}
         <Sources
           sources={sources}
-          onAdd={(q) => setSources(s => [...s, q])}
-          onRemove={(i) => setSources(s => s.filter((_, idx) => idx !== i))}
+          onAdd={(q) => setSources((s) => [...s, q])}
+          onRemove={(i) =>
+            setSources((s) => s.filter((_, idx) => idx !== i))
+          }
         />
       </div>
 
-      {/* Pop-up (ohne Löschbutton) */}
+      {/* Pop-up mit Löschen + Bestätigung */}
       {modalOpen && selected && (
         <div className="fixed inset-0 bg-black/30 grid place-items-center p-4 z-50">
           <div className="bg-white rounded-2xl shadow-xl max-w-xl w-full p-4">
@@ -485,7 +669,9 @@ export default function App() {
             </div>
             <div className="grid gap-2">
               <div>
-                <div className="text-xs uppercase text-gray-500">Definition</div>
+                <div className="text-xs uppercase text-gray-500">
+                  Definition
+                </div>
                 <div>{selected.definition}</div>
               </div>
               <div>
@@ -496,9 +682,11 @@ export default function App() {
                 <div className="text-xs uppercase text-gray-500">Quellen</div>
                 <div className="flex flex-wrap gap-2 mt-1">
                   {selected.quellen.length === 0 && (
-                    <span className="text-gray-500 text-sm">Keine Quelle zugeordnet.</span>
+                    <span className="text-gray-500 text-sm">
+                      Keine Quelle zugeordnet.
+                    </span>
                   )}
-                  {selected.quellen.map(q => (
+                  {selected.quellen.map((q) => (
                     <span
                       key={q}
                       className="px-2 py-1 rounded-full bg-gray-100 border text-xs"
@@ -508,27 +696,33 @@ export default function App() {
                   ))}
                 </div>
               </div>
+
               <div className="flex justify-end gap-2 mt-2">
-  <button
-    className="px-3 py-2 rounded-lg border bg-red-50 text-red-600 hover:bg-red-100"
-    onClick={() => {
-      if (window.confirm(`Möchtest du den Eintrag "${selected.begriff}" wirklich löschen?`)) {
-        setEntries(prev => prev.filter(e => e.begriff !== selected.begriff));
-        setModalOpen(false);
-      }
-    }}
-  >
-    Löschen
-  </button>
+                <button
+                  className="px-3 py-2 rounded-lg border bg-red-50 text-red-600 hover:bg-red-100"
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        `Möchtest du den Eintrag "${selected.begriff}" wirklich löschen?`
+                      )
+                    ) {
+                      setEntries((prev) =>
+                        prev.filter((e) => e.begriff !== selected.begriff)
+                      );
+                      setModalOpen(false);
+                    }
+                  }}
+                >
+                  Löschen
+                </button>
 
-  <button
-    className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50"
-    onClick={() => setModalOpen(false)}
-  >
-    Schließen
-  </button>
-</div>
-
+                <button
+                  className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50"
+                  onClick={() => setModalOpen(false)}
+                >
+                  Schließen
+                </button>
+              </div>
             </div>
           </div>
         </div>
