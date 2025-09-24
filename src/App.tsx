@@ -504,13 +504,26 @@ export default function App() {
                 </div>
               </div>
               <div className="flex justify-end gap-2 mt-2">
-                <button
-                  className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50"
-                  onClick={() => setModalOpen(false)}
-                >
-                  Schließen
-                </button>
-              </div>
+  <button
+    className="px-3 py-2 rounded-lg border bg-red-50 text-red-600 hover:bg-red-100"
+    onClick={() => {
+      if (window.confirm(`Möchtest du den Eintrag "${selected.begriff}" wirklich löschen?`)) {
+        setEntries(prev => prev.filter(e => e.begriff !== selected.begriff));
+        setModalOpen(false);
+      }
+    }}
+  >
+    Löschen
+  </button>
+
+  <button
+    className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50"
+    onClick={() => setModalOpen(false)}
+  >
+    Schließen
+  </button>
+</div>
+
             </div>
           </div>
         </div>
