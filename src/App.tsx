@@ -10,7 +10,7 @@ import {
 
 const msalConfig = {
   auth: {
-    clientId: "9d5d5688-4c2a-451e-85e5-8780c4cd8d5e", // <- HIER deine echte Azure Client-ID eintragen
+    clientId: "a31abe3e-9a9c-4734-8403-257dbc570b19", // <- HIER deine echte Azure Client-ID eintragen
     authority: "https://login.microsoftonline.com/common",
     redirectUri: window.location.origin + "/",
   },
